@@ -1,7 +1,7 @@
 import axios from 'axios';
+import { parseAnimationSteps } from './parseAnimationSteps';
+import { generateAnimationsInParallel } from './generateFrames';
 
-//generate API KEY from google studio
-const API_KEY = "  " ;
 const API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 interface GeminiResponse {
@@ -14,33 +14,49 @@ interface GeminiResponse {
   }[];
 }
 
-export const generateAnimation = async (prompt: string): Promise<string> => {
-  try {
 
-    const enhancedPrompt = `
-        Create a p5.js animation based on the following description: "${prompt}".
+ export const generateAnimation = async (prompt: string , API_KEY:string , width:number , height:number ) => {
+   try {
 
-Return only the JavaScript code in p5.js instance mode, with all methods and event handlers attached to a p object (like p.setup = () => { ... }).
+    const storyMode = `
+    You are an Animation Scene Analyzer. Break down the following scene into sequential animation steps:
 
-Do not include any outer function, new p5(...), or arrow function wrapper.
+USER:${prompt}
 
-The code should begin directly with any variable declarations and p.setup, followed by p.draw, etc.
+break down the animation into 5-8 sequential steps. Each step should be single, descriptive, and detailed sentence capturing a key moment in the animation.
 
-Use p.createCanvas, p.background, p.ellipse, p.noise, etc. to reference all p5.js functions.
+- give user prompt top most priority
 
-Your output must be directly executable inside a new p5(sketch, container) call — just the sketch body, no wrapping.
+Format your response as:
+Main Character: [brief description along with size and colour and anything extra]
+Setting: [brief description]
+Style: [style name] 
+Colors: [color palette]
 
-Run at 60 FPS. Make it creative, visually appealing, and interactive where appropriate. write error free code
-    `;
 
-    const response = await axios.post<GeminiResponse>(
+Example user input: 'A cat explores a mysterious forest at night.'
+Example output (style = minimalist, colorful, calm):
+1. A small white cat walks under a soft purple moon.
+2. The cat gazes at glowing blue mushrooms along the path.
+3. Gentle yellow fireflies dance around the cat.
+4. The cat hops over a smooth gray log.
+5. Two soft green lights glow from the bushes.
+6. The cat trots happily into the glowing mist.
+
+
+Animation Steps:
+1. [First step]
+2. [Second step]
+and so on
+    `
+    const storymode = await axios.post<GeminiResponse>(
       `${API_ENDPOINT}?key=${API_KEY}`,
       {
         contents: [
           {
             parts: [
               {
-                text: enhancedPrompt
+                text: storyMode
               }
             ]
           }
@@ -54,24 +70,62 @@ Run at 60 FPS. Make it creative, visually appealing, and interactive where appro
       }
     );
 
-    
-    const generatedText = response.data.candidates[0].content.parts[0].text;
-    
-    
-    console.log({generatedText})
-    const cleanedCode = cleanP5Code(generatedText);
-    console.log({cleanedCode})
+    const output  = storymode.data.candidates[0].content.parts[0].text;
 
-    return cleanedCode;
+    const { characterInfo, steps } = parseAnimationSteps(output)
+    console.log({characterInfo,steps})
+
+
+const MainCharacter = `You are a P5.js Animation Code Generator. Create animation code based on the scene description below:
+
+USER: ${prompt}
+
+Requirements:
+1. Generate ONLY p5.js code in instance mode
+2. All methods and event handlers must be attached to a p object (like p.setup = function() { ... })
+3. Do NOT include any outer function, new p5() constructor, or arrow function wrapper
+4. Create variables for all characters and scene elements
+5. Implement a complete p.setup() function that initializes the canvas
+6. Create a p.draw() function with animation logic
+7. Include any necessary helper functions
+8. Use appropriate timing mechanisms for smooth animation
+9. Maintain consistent character appearance throughout
+10. Include detailed comments explaining the animation logic
+11. also include what the code actually render
+
+If the scene description lacks specific details (colors, sizes, etc.), use your creativity to establish a consistent visual style.
+
+Return ONLY the ready-to-run p5.js code with no explanations before or after.`
+
+const main = await axios.post<GeminiResponse>(
+  `${API_ENDPOINT}?key=${API_KEY}`,
+  {
+    contents: [
+      {
+        parts: [
+          {
+            text: MainCharacter
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.7,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens: 8192,
+    }
+  }
+);
+const consistentElements = main.data.candidates[0].content.parts[0].text;
+
+
+    const { generateContent, getPrompt} = await generateAnimationsInParallel(steps,characterInfo,consistentElements,width,height,API_KEY,API_ENDPOINT,"other")
+    console.log({generateContent, getPrompt})
+    return { generateContent, getPrompt };
+
   } catch (error) {
     console.error('Error calling Gemini API:', error);
     throw new Error('Failed to generate animation code');
   }
-};
-
-const cleanP5Code = (rawCode: string): string => {
- 
-const cleanedCode = rawCode.replace(/```(javascript|js)?\n/g, '').replace(/```$/g, '');
-  
-  return cleanedCode;
 };
